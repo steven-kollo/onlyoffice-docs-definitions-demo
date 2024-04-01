@@ -1,236 +1,436 @@
+#!/usr/bin/env node
 // @ts-check
 
-import { spawn } from "node:child_process"
-import { createReadStream, createWriteStream } from "node:fs"
-import { mkdir, mkdtemp, open, writeFile } from "node:fs/promises"
-import http from "node:https"
-import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
-import { argv } from "node:process"
-import { fileURLToPath } from "node:url"
+/**
+ * @typedef {import("node:stream").TransformCallback} TransformCallback
+ * @typedef {import("node:fs").WriteStream} WriteStream
+ */
+
+import {spawn} from "node:child_process"
+import {Console as NodeConsole} from "node:console"
+import {createReadStream, createWriteStream, existsSync} from "node:fs"
+import {mkdir, mkdtemp, writeFile, rm, rmdir} from "node:fs/promises"
+import {tmpdir} from "node:os"
+import {dirname, join} from "node:path"
+import {argv} from "node:process"
+import {finished} from "node:stream/promises"
+import {Readable, Transform} from "node:stream"
+import {fileURLToPath} from "node:url"
 import sade from "sade"
 import Chain from "stream-chain"
 import StreamArray from "stream-json/streamers/StreamArray.js"
 import Disassembler from "stream-json/Disassembler.js"
 import Stringer from "stream-json/Stringer.js"
-import parser from "stream-json"
+import Parser from "stream-json/Parser.js"
+import pack from "./package.json" with {type: "json"}
 
-const root = fileURLToPath(new URL(".", import.meta.url))
-const make = sade("./makefile.js")
+/**
+ * @typedef {Object} Config
+ * @property {ConfigMeta} meta
+ * @property {ConfigSource[]} sources
+ */
 
-const repos = {
-  "sdkjs": [
-    "word/apiBuilder.js",
-    "cell/apiBuilder.js",
-    "slide/apiBuilder.js",
-    "word/api_plugins.js",
-    "cell/api_plugins.js",
-    "slide/api_plugins.js",
-    "common/apiBase_plugins.js",
-    "common/plugins/plugin_base_api.js"
-  ],
-  "sdkjs-forms": [
-    "apiBuilder.js",
-    "apiPlugins.js"
+/**
+ * @typedef {Object} ConfigMeta
+ * @property {string} owner
+ * @property {string} name
+ * @property {string} branch
+ * @property {string} file
+ */
+
+/**
+ * @typedef {Object} ConfigSource
+ * @property {string} owner
+ * @property {string} name
+ * @property {string} branch
+ * @property {string[]} files
+ */
+
+/**
+ * @typedef {Partial<Record<string, string>>} Meta
+ */
+
+/** @type {Config} */
+const config = {
+  meta: {
+    owner: "vanyauhalin",
+    name: "onlyoffice-docs-definitions-demo",
+    branch: "dist",
+    file: "meta.json"
+  },
+  sources: [
+    {
+      owner: "onlyoffice",
+      name: "sdkjs",
+      // todo: replace with `branches: string[]`
+      branch: "master",
+      files: [
+        "word/apiBuilder.js",
+        "cell/apiBuilder.js",
+        "slide/apiBuilder.js",
+        "word/api_plugins.js",
+        "cell/api_plugins.js",
+        "slide/api_plugins.js",
+        "common/apiBase_plugins.js",
+        "common/plugins/plugin_base_api.js"
+      ]
+    },
+    {
+      owner: "onlyoffice",
+      name: "sdkjs-forms",
+      // todo: replace with `branches: string[]`
+      branch: "master",
+      files: [
+        "apiBuilder.js",
+        "apiPlugins.js"
+      ]
+    }
   ]
 }
 
-make
-  .command("build")
-  .action(async () => {
-    // todo: rewrite it.
-    const rawMeta = await fetch("https://raw.githubusercontent.com/vanyauhalin/onlyoffice-docs-definitions-demo/dist/meta.json")
-    const meta = await rawMeta.json()
+const console = createConsole()
+main()
 
-    const rawSDKJS = await fetch("https://api.github.com/repos/ONLYOFFICE/sdkjs/commits")
-    const sdkjs = await rawSDKJS.json()
-    const sdkjsSHA = sdkjs[0].sha
+/**
+ * @returns {void}
+ */
+function main() {
+  sade("./makefile.js")
+    .command("build")
+    .action(build)
+    .parse(argv)
+}
 
-    const rawSDKJSForms = await fetch("https://api.github.com/repos/ONLYOFFICE/sdkjs-forms/commits")
-    const sdkjsForms = await rawSDKJSForms.json()
-    const sdkjsFormsSHA = sdkjsForms[0].sha
+/**
+ * @returns {Promise<void>}
+ */
+async function build() {
+  const current = await fetchCurrentMeta(config)
+  const latest = await fetchLatestMeta(config)
+  if (JSON.stringify(current) === JSON.stringify(latest)) {
+    console.info("No updates")
+    return
+  }
 
-    const hasUpdate = !(meta["sdkjs"] === sdkjsSHA && meta["sdkjs-forms"] === sdkjsFormsSHA)
-    if (!hasUpdate) {
-      console.log("No update")
-      return
-    }
+  const dist = distDir()
+  if (!existsSync(dist)) {
+    await mkdir(dist)
+  }
 
-    const tmp = join(tmpdir(), "onlyoffice-docs-definitions-demo")
-    const temp = await mkdtemp(tmp)
-    const dist = join(root, "dist")
-    await mkdir(dist, { recursive: true })
+  const temp = await createTempDir()
+  await Promise.all(config.sources.map(async (source) => {
+    const dir = join(temp, source.name)
+    await mkdir(dir)
 
-    // function module(repo, file) {
-    //   switch (repo) {
-    //   case "sdkjs":
-    //     return "skdjs"
-    //   case "sdkjs-forms":
-    //     return "sdkjs-forms"
-    //   }
-    // }
-
-    await Promise.all(Object.entries(repos).map(async ([repo, files]) => {
-      // todo: common...
-      const commit = repo === "sdkjs" ? sdkjsSHA : sdkjsFormsSHA
-
-      const inputDir = join(temp, repo)
-      await mkdir(inputDir)
-      await Promise.all(files.map(async (file) => {
-        const n = dirname(file)
-        const d = join(inputDir, n)
-        await mkdir(d, { recursive: true })
-        const u = `https://raw.githubusercontent.com/ONLYOFFICE/${repo}/${commit}/${file}`
-        const i = join(inputDir, file)
-        await downloadFile(u, i)
-        // await appendFile(i, `/** @module ${module(repo)} */`)
-      }))
-
-      const o0 = join(temp, `${repo}0.json`)
-      const w = createWriteStream(o0)
-      await new Promise((resolve, reject) => {
-        const e = spawn("./node_modules/.bin/jsdoc", [inputDir, "--debug", "--explain", "--recurse"])
-        e.stdout.on("data", (ch) => {
-          // todo: should be a better way.
-          const l = ch.toString()
-          if (
-            l.startsWith("DEBUG:") ||
-            l.startsWith(`Parsing ${inputDir}`) ||
-            l.startsWith("Finished running")
-          ) {
-            return
-          }
-          w.write(ch)
-        })
-        e.stdout.on("close", () => {
-          w.close()
-          resolve(undefined)
-        })
-        e.stdout.on("error", (error) => {
-          console.error(error)
-          w.close()
-          reject(error)
-        })
-      })
-
-      // todo: check https://jsdoc.app/about-plugins
-      // maybe we can rewrite it with plugins.
-
-      const o1 = join(temp, `${repo}1.json`)
-      await new Promise((res, rej) => {
-        const l = new Chain([
-          createReadStream(o0),
-          parser(),
-          new StreamArray(),
-          (data) => {
-            // todo: describe a new schema.
-            // https://github.com/jsdoc/jsdoc/blob/main/packages/jsdoc-doclet/lib/schema.js#L87
-
-            const { value } = data
-
-            if (Object.hasOwn(value, "undocumented") && value.undocumented) {
-              return undefined
-            }
-
-            let path = ""
-            let filename = ""
-            if (Object.hasOwn(value, "meta") && Object.hasOwn(value.meta, "path")) {
-              path = value.meta.path.replace(inputDir, "")
-              delete value.meta.path
-            }
-            if (Object.hasOwn(value, "meta") && Object.hasOwn(value.meta, "filename")) {
-              filename = value.meta.filename
-              delete value.meta.filename
-            }
-
-            let f = join(path, filename)
-            if (f.startsWith("/")) {
-              f = f.slice(1)
-            }
-
-            // see github schema, don't generate manually, fetch from the github api (sure?)
-            // https://raw.githubusercontent.com/vanyauhalin/onlyoffice-docs-definitions-demo/dist/meta.json
-            const file = `https://api.github.com/repos/onlyoffice/${repo}/contents/${f}?ref=${commit}`
-
-            if (value.meta !== undefined) {
-              // why file? because kind=package has the files property.
-              value.meta.file = file
-            }
-
-            if (Object.hasOwn(value, "meta") && Object.hasOwn(value.meta, "code")) {
-              delete value.meta.code
-            }
-            if (Object.hasOwn(value, "meta") && Object.hasOwn(value.meta, "vars")) {
-              delete value.meta.vars
-            }
-            if (Object.hasOwn(value, "files")) {
-              value.files = value.files.map((file) => {
-                let f = file.replace(inputDir, "")
-                if (f.startsWith("/")) {
-                  f = f.slice(1)
-                }
-                return `https://api.github.com/repos/onlyoffice/${repo}/contents/${f}?ref=${commit}`
-              })
-            }
-
-            if (Object.hasOwn(value, "properties") && value.properties.length === 0) {
-              delete value.properties
-            }
-            if (Object.hasOwn(value, "params") && value.params.length === 0) {
-              delete value.params
-            }
-
-            return value
-          },
-          new Disassembler(),
-          new Stringer({ makeArray: true }),
-          createWriteStream(o1)
-        ])
-        l.on("finish", () => {
-          const o2 = join(dist, `${repo}.json`)
-          const w = createWriteStream(o2)
-          const s = spawn("jq", [".", o1])
-          s.stdout.on("data", (chunk) => {
-            w.write(chunk)
-          })
-          s.stdout.on("close", () => {
-            w.close()
-            res(undefined)
-          })
-          s.stdout.on("error", (error) => {
-            console.error(error)
-            w.close()
-            rej(error)
-          })
-        })
-      })
+    let from = dir
+    await Promise.all(source.files.map(async (f) => {
+      const to = join(from, f)
+      const d = dirname(to)
+      await mkdir(d, {recursive: true})
+      const u = sourceFile(latest, source, f)
+      await downloadFile(u, to)
     }))
 
-    const mf = join(dist, "meta.json")
-    const mo = {
-      "sdkjs": sdkjsSHA,
-      "sdkjs-forms": sdkjsFormsSHA
-    }
-    await writeFile(mf, JSON.stringify(mo, undefined, 2))
+    let to = join(temp, `${source.name}.pre.json`)
+    let w = createWriteStream(to)
+    await jsdoc(w, from)
+    w.close()
+    await rm(from, {recursive: true})
 
-    // todo: delete temp.
-  })
-
-function downloadFile(u, f) {
-  return new Promise((resolve, reject) => {
-    http.get(u, async (res) => {
-      const file = await open(f, "w")
-      const stream = file.createWriteStream()
-      res.pipe(stream);
-      stream.on("finish", () => {
-        stream.close(() => {
-          file.close()
-          resolve(true)
-        })
-      })
-      stream.on("error", reject)
+    from = to
+    to = join(temp, `${source.name}.post.json`)
+    await new Promise((res, rej) => {
+      const c = new Chain([
+        createReadStream(from),
+        new Parser(),
+        new StreamArray(),
+        new Process(latest, source, dir),
+        new Disassembler(),
+        new Stringer({ makeArray: true }),
+        createWriteStream(to)
+      ])
+      c.on("close", res)
+      c.on("error", rej)
     })
+    await rm(from)
+
+    from = to
+    to = join(dist, `${source.name}.json`)
+    w = createWriteStream(to)
+    await jq(w, from)
+    w.close()
+    await rm(from)
+  }))
+  await rmdir(temp)
+
+  await writeMeta(config, dist, latest)
+}
+
+/**
+ * @param {Config} c
+ * @returns {Promise<Meta>}
+ */
+async function fetchCurrentMeta(c) {
+  const u = `https://raw.githubusercontent.com/${c.meta.owner}/${c.meta.name}/${c.meta.branch}/${c.meta.file}`
+  const r = await fetch(u)
+  if (r.status !== 200) {
+    return {}
+  }
+  return r.json()
+}
+
+/**
+ * @param {Config} c
+ * @returns {Promise<Meta>}
+ */
+async function fetchLatestMeta(c) {
+  /** @type {Meta} */
+  const m = {}
+  // Do not use Promise.all here, because the order of the sources is sensitive.
+  for (const s of c.sources) {
+    m[s.name] = await fetchSHA(s)
+  }
+  return m
+}
+
+/**
+ * @param {Config} c
+ * @param {string} d
+ * @param {Meta} m
+ * @returns {Promise<void>}
+ */
+async function writeMeta(c, d, m) {
+  const f = join(d, c.meta.file)
+  await writeFile(f, JSON.stringify(m, undefined, 2))
+}
+
+/**
+ * @param {ConfigSource} s
+ * @returns {Promise<string>}
+ */
+async function fetchSHA(s) {
+  const u = `https://api.github.com/repos/${s.owner}/${s.name}/branches/${s.branch}`
+  const r = await fetch(u)
+  if (r.status !== 200) {
+    throw new Error(`Failed to fetch commit SHA for ${s.name}`)
+  }
+  const j = await r.json()
+  return j.commit.sha
+}
+
+/**
+ * @param {Meta} m
+ * @param {ConfigSource} s
+ * @param {string} f
+ * @returns {string}
+ */
+function sourceFile(m, s, f) {
+  const c = m[s.name]
+  if (c === undefined) {
+    throw new Error(`Commit SHA for ${s.name} is missing`)
+  }
+  return `https://raw.githubusercontent.com/${s.owner}/${s.name}/${c}/${f}`
+}
+
+/**
+ * Downloads a file.
+ * @param {string} u The URL of the file to download.
+ * @param {string} p The path of the file to save.
+ * @returns {Promise<void>}
+ */
+async function downloadFile(u, p) {
+  const res = await fetch(u)
+  if (res.body === null) {
+    throw new Error("No body")
+  }
+  // Uses two distinct types of ReadableStream: one from the DOM API and another
+  // from NodeJS API. It functions well, so no need to worry.
+  // @ts-ignore
+  const r = Readable.fromWeb(res.body)
+  const s = createWriteStream(p)
+  const w = r.pipe(s)
+  await finished(w)
+}
+
+/**
+ * @param {Meta} m
+ * @param {ConfigSource} s
+ * @param {string} f
+ * @returns {string}
+ */
+function createFileReference(m, s, f) {
+  const c = m[s.name]
+  if (c === undefined) {
+    throw new Error(`Commit SHA for ${s.name} is missing`)
+  }
+  return `https://api.github.com/repos/${s.owner}/${s.name}/contents/${f}?ref=${c}`
+}
+
+/**
+ * @returns {Promise<string>}
+ */
+function createTempDir() {
+  const tmp = join(tmpdir(), pack.name)
+  return mkdtemp(`${tmp}-`)
+}
+
+/**
+ * @returns {string}
+ */
+function distDir() {
+  return join(rootDir(), "dist")
+}
+
+/**
+ * @returns {string}
+ */
+function rootDir() {
+  const u = new URL(".", import.meta.url)
+  return fileURLToPath(u)
+}
+
+/**
+ * @param {WriteStream} w
+ * @param {string} from
+ * @returns {Promise<void>}
+ */
+async function jsdoc(w, from) {
+  return new Promise((res, rej) => {
+    const s = spawn("./node_modules/.bin/jsdoc", [from, "--debug", "--explain", "--recurse"])
+    s.stdout.on("data", (ch) => {
+      const l = ch.toString()
+      if (
+        l.startsWith("DEBUG:") ||
+        l.startsWith(`Parsing ${from}`) ||
+        l.startsWith("Finished running")
+      ) {
+        return
+      }
+      w.write(ch)
+    })
+    s.on("close", res)
+    s.on("error", rej)
   })
 }
 
-make.parse(argv)
+/**
+ * @param {WriteStream} w
+ * @param {string} from
+ * @returns {Promise<void>}
+ */
+async function jq(w, from) {
+  return new Promise((res, rej) => {
+    const s = spawn("jq", [".", from])
+    s.stdout.on("data", (ch) => {
+      w.write(ch)
+    })
+    s.on("close", res)
+    s.on("error", rej)
+  })
+}
+
+class Process extends Transform {
+  /**
+   * @param {Meta} meta
+   * @param {ConfigSource} source
+   * @param {string} dir
+   */
+  constructor(meta, source, dir) {
+    super({objectMode: true})
+    this.meta = meta
+    this.source = source
+    this.dir = dir
+  }
+
+  /**
+   * @param {Object} ch
+   * @param {string} _
+   * @param {TransformCallback} cb
+   * @returns {void}
+   */
+  _transform(ch, _, cb) {
+    const {value: v} = ch
+
+    if ("undocumented" in v) {
+      cb(null)
+      return
+    }
+
+    if (v.meta === undefined) {
+      v.meta = {}
+    }
+
+    let path = ""
+    let filename = ""
+    if ("path" in v.meta) {
+      path = v.meta.path
+      delete v.meta.path
+    }
+    if ("filename" in v.meta) {
+      filename = v.meta.filename
+      delete v.meta.filename
+    }
+    const f = join(path, filename)
+    v.meta.file = this._createFileReference(f)
+
+    if ("code" in v.meta) {
+      delete v.meta.code
+    }
+    if ("vars" in v.meta) {
+      delete v.meta.vars
+    }
+
+    if ("files" in v) {
+      v.files = v.files.map((f) => {
+        return this._createFileReference(f)
+      })
+    }
+
+    if ("properties" in v && v.properties.length === 0) {
+      delete v.properties
+    }
+    if ("params" in v && v.params.length === 0) {
+      delete v.params
+    }
+
+    this.push(v)
+    cb(null)
+  }
+
+  /**
+   * @param {string} f
+   * @returns {string}
+   */
+  _createFileReference(f) {
+    f = f.replace(this.dir, "")
+    if (f.startsWith("/")) {
+      f = f.slice(1)
+    }
+    return createFileReference(this.meta, this.source, f)
+  }
+}
+
+/**
+ * @returns {Console}
+ */
+function createConsole() {
+  // This exists only to allow the class to be placed at the end of the file.
+  class Console extends NodeConsole {
+    /**
+     * @param  {...any} data
+     * @returns {void}
+     */
+    info(...data) {
+      super.info("info:", ...data)
+    }
+
+    /**
+     * @param  {...any} data
+     * @returns {void}
+     */
+    warn(...data) {
+      super.warn("warn:", ...data)
+    }
+  }
+  return new Console(process.stdout, process.stderr)
+}
