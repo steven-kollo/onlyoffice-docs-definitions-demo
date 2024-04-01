@@ -5,7 +5,7 @@ permissions:
 
 on:
   schedule:
-  - cron: '0 0 * * *'
+  - cron: "0 0 * * *"
   workflow_dispatch:
 
 jobs:
@@ -13,41 +13,41 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v2
+    - name: Setup NodeJS
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: "package.json"
 
     - name: Setup pnpm
-      uses: pnpm/action-setup@v2
+      uses: pnpm/action-setup@v3
 
     - name: Install Dependencies
-      run: pnpm install
+      run: pnpm install --frozen-lockfile
 
-    - name: Build Definitions
+    - name: Build Declarations
       run: pnpm build
 
-    - name: Setup Git Configuration
+    - name: Setup Git
       run: |
-        raw="https://api.github.com/users/${{ github.actor }}"
-        json=$(curl --silent -H 'Accept: application/json' $raw)
-        id=$(echo $json | jq --raw-output '.id')
-        git config --global user.name ${{ github.actor }}
-        git config --global user.email \
-          "$id+${{ github.actor }}@users.noreply.github.com"
+        u=$(curl --silent --header "Accept: application/json" "https://api.github.com/users/${{github.actor}}")
+        id=$(echo "$u" | jq --raw-output ".id")
+        git config --global user.name "${{github.actor}}"
+        git config --global user.email "$id+${{github.actor}}@users.noreply.github.com"
 
-    - name: Publish Definitions
+    - name: Publish Declarations
       run: |
         temp=$(mktemp -d)
-        cd dist
+        cd ./dist
         git clone \
           --quiet \
           --no-checkout \
           --single-branch \
           --branch "dist" \
-          https://${{ secrets.PUBLISH_TOKEN }}@github.com/${{ github.repository }}.git \
-          temp
-        mv temp/.git .
+          "https://${{secrets.PUBLISH_TOKEN}}@github.com/${{github.repository}}.git" \
+          "$temp"
+        mv "$temp/.git" .
         git add .
-        git commit --quiet --message "$(date -u)"
+        git commit --quiet --message "$(date --utc)"
         git push
