@@ -146,7 +146,7 @@ async function build() {
         new StreamArray(),
         new Process(latest, source, dir),
         new Disassembler(),
-        new Stringer({ makeArray: true }),
+        new Stringer({makeArray: true}),
         createWriteStream(to)
       ])
       c.on("close", res)
