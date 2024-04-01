@@ -356,7 +356,7 @@ class Process extends Transform {
       return
     }
 
-    if ("meta" in v.meta) {
+    if ("meta" in v) {
       let path = ""
       if ("path" in v.meta) {
         path = v.meta.path
