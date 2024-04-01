@@ -356,28 +356,28 @@ class Process extends Transform {
       return
     }
 
-    if (v.meta === undefined) {
-      v.meta = {}
-    }
+    if ("meta" in v.meta) {
+      let path = ""
+      if ("path" in v.meta) {
+        path = v.meta.path
+        delete v.meta.path
+      }
 
-    let path = ""
-    let filename = ""
-    if ("path" in v.meta) {
-      path = v.meta.path
-      delete v.meta.path
-    }
-    if ("filename" in v.meta) {
-      filename = v.meta.filename
-      delete v.meta.filename
-    }
-    const f = join(path, filename)
-    v.meta.file = this._createFileReference(f)
+      let filename = ""
+      if ("filename" in v.meta) {
+        filename = v.meta.filename
+        delete v.meta.filename
+      }
 
-    if ("code" in v.meta) {
-      delete v.meta.code
-    }
-    if ("vars" in v.meta) {
-      delete v.meta.vars
+      const f = join(path, filename)
+      v.meta.file = this._createFileReference(f)
+
+      if ("code" in v.meta) {
+        delete v.meta.code
+      }
+      if ("vars" in v.meta) {
+        delete v.meta.vars
+      }
     }
 
     if ("files" in v) {
