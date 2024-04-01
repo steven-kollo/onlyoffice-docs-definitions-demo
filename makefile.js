@@ -88,6 +88,11 @@ const config = {
   ]
 }
 
+/**
+ * @typedef {Object} BuildOptions
+ * @property {string} force
+ */
+
 const console = createConsole()
 main()
 
@@ -97,19 +102,24 @@ main()
 function main() {
   sade("./makefile.js")
     .command("build")
+    .option("--force", "Force build", false)
     .action(build)
     .parse(argv)
 }
 
 /**
+ * @param {BuildOptions} opt
  * @returns {Promise<void>}
  */
-async function build() {
-  const current = await fetchCurrentMeta(config)
+async function build(opt) {
   const latest = await fetchLatestMeta(config)
-  if (JSON.stringify(current) === JSON.stringify(latest)) {
-    console.info("No updates")
-    return
+
+  if (!opt.force) {
+    const current = await fetchCurrentMeta(config)
+    if (JSON.stringify(current) === JSON.stringify(latest)) {
+      console.info("No updates")
+      return
+    }
   }
 
   const dist = distDir()
