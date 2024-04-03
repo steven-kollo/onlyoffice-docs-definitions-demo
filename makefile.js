@@ -46,10 +46,6 @@ import pack from "./package.json" with {type: "json"}
  * @property {string[]} files
  */
 
-/**
- * @typedef {Partial<Record<string, string>>} Meta
- */
-
 /** @type {Config} */
 const config = {
   meta: {
@@ -87,6 +83,14 @@ const config = {
     }
   ]
 }
+
+/**
+ * @typedef {Partial<Record<string, string>>} MetaBranch
+ */
+
+/**
+ * @typedef {Partial<Record<string, MetaBranch>>} Meta
+ */
 
 /**
  * @typedef {Object} BuildOptions
@@ -164,8 +168,13 @@ async function build(opt) {
     })
     await rm(from)
 
+    const d = join(dist, source.branch)
+    if (!existsSync(d)) {
+      await mkdir(d)
+    }
+
     from = to
-    to = join(dist, `${source.name}.json`)
+    to = join(d, `${source.name}.json`)
     w = createWriteStream(to)
     await jq(w, from)
     w.close()
@@ -198,7 +207,12 @@ async function fetchLatestMeta(c) {
   const m = {}
   // Do not use Promise.all here, because the order of the sources is sensitive.
   for (const s of c.sources) {
-    m[s.name] = await fetchSHA(s)
+    let b = m[s.branch]
+    if (b === undefined) {
+      b = {}
+      m[s.branch] = b
+    }
+    b[s.name] = await fetchSHA(s)
   }
   return m
 }
@@ -235,7 +249,11 @@ async function fetchSHA(s) {
  * @returns {string}
  */
 function sourceFile(m, s, f) {
-  const c = m[s.name]
+  const b = m[s.branch]
+  if (b === undefined) {
+    throw new Error(`Branch ${s.branch} is missing`)
+  }
+  const c = b[s.name]
   if (c === undefined) {
     throw new Error(`Commit SHA for ${s.name} is missing`)
   }
@@ -269,7 +287,11 @@ async function downloadFile(u, p) {
  * @returns {string}
  */
 function createFileReference(m, s, f) {
-  const c = m[s.name]
+  const b = m[s.branch]
+  if (b === undefined) {
+    throw new Error(`Branch ${s.branch} is missing`)
+  }
+  const c = b[s.name]
   if (c === undefined) {
     throw new Error(`Commit SHA for ${s.name} is missing`)
   }
