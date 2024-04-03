@@ -7,7 +7,7 @@
  */
 
 import {spawn} from "node:child_process"
-import {Console as NodeConsole} from "node:console"
+import {Console as NodeConsole, error} from "node:console"
 import {createReadStream, createWriteStream, existsSync} from "node:fs"
 import {mkdir, mkdtemp, writeFile, rm, rmdir} from "node:fs/promises"
 import {tmpdir} from "node:os"
@@ -206,19 +206,13 @@ async function fetchLatestMeta(c) {
   const m = {}
   // Do not use Promise.all here, because the order of the sources is sensitive.
   for (const s of c.sources) {
-    if (m[s.branch] === undefined) {
-      m[s.branch] = {}
-    }
-    const b = m[s.branch]
+    let b = m[s.branch]
     if (b === undefined) {
-      throw new Error(`Branch ${s.branch} is missing`)
-    }
-    if (s.name === undefined) {
-      throw new Error(`Commit SHA for ${s.name} is missing`)
+      b = {}
+      m[s.branch] = b
     }
     b[s.name] = await fetchSHA(s)
   }
-
   return m
 }
 
