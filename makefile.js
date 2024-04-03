@@ -47,7 +47,11 @@ import pack from "./package.json" with {type: "json"}
  */
 
 /**
- * @typedef {Partial<Record<string, Partial<Record<string, string>>>>} Meta
+ * @typedef {Partial<Record<string, string>>} MetaBranch
+ */
+
+/**
+ * @typedef {Partial<Record<string, MetaBranch>>} Meta
  */
 
 /** @type {Config} */
@@ -129,11 +133,6 @@ async function build(opt) {
 
   const temp = await createTempDir()
   await Promise.all(config.sources.map(async (source) => {
-    const branchDir = distBranchDir(dist, source.branch)
-    if (!existsSync(branchDir)) {
-      await mkdir(branchDir)
-    }
-
     const dir = join(temp, source.name)
     await mkdir(dir)
 
@@ -169,6 +168,10 @@ async function build(opt) {
     })
     await rm(from)
 
+    const branchDir = join(dist, source.branch)
+    if (!existsSync(branchDir)) {
+      await mkdir(branchDir)
+    }
     from = to
     to = join(branchDir, `${source.name}.json`)
     w = createWriteStream(to)
@@ -203,10 +206,17 @@ async function fetchLatestMeta(c) {
   const m = {}
   // Do not use Promise.all here, because the order of the sources is sensitive.
   for (const s of c.sources) {
-    if (m[s.branch] == undefined) {
+    if (m[s.branch] === undefined) {
       m[s.branch] = {}
     }
-    m[s.branch][s.name] = await fetchSHA(s)
+    const b = m[s.branch]
+    if (b === undefined) {
+      throw new Error(`Branch ${s.branch} is missing`)
+    }
+    if (s.name === undefined) {
+      throw new Error(`Commit SHA for ${s.name} is missing`)
+    }
+    b[s.name] = await fetchSHA(s)
   }
 
   return m
@@ -244,7 +254,11 @@ async function fetchSHA(s) {
  * @returns {string}
  */
 function sourceFile(m, s, f) {
-  const c = m[s.branch][s.name]
+  const b = m[s.branch]
+  if (b === undefined) {
+    throw new Error(`Branch ${s.branch} is missing`)
+  }
+  const c = b[s.name]
   if (c === undefined) {
     throw new Error(`Commit SHA for ${s.name} is missing`)
   }
@@ -278,7 +292,11 @@ async function downloadFile(u, p) {
  * @returns {string}
  */
 function createFileReference(m, s, f) {
-  const c = m[s.branch][s.name]
+  const b = m[s.branch]
+  if (b === undefined) {
+    throw new Error(`Branch ${s.branch} is missing`)
+  }
+  const c = b[s.name]
   if (c === undefined) {
     throw new Error(`Commit SHA for ${s.name} is missing`)
   }
@@ -300,14 +318,6 @@ function distDir() {
   return join(rootDir(), "dist")
 }
 
-/**
- * @param {string} dist
- * @param {string} branch
- * @returns {string}
- */
-function distBranchDir(dist, branch) {
-  return join(dist, branch)
-}
 
 /**
  * @returns {string}
