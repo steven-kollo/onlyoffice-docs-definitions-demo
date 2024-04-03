@@ -7,7 +7,7 @@
  */
 
 import {spawn} from "node:child_process"
-import {Console as NodeConsole, error} from "node:console"
+import {Console as NodeConsole} from "node:console"
 import {createReadStream, createWriteStream, existsSync} from "node:fs"
 import {mkdir, mkdtemp, writeFile, rm, rmdir} from "node:fs/promises"
 import {tmpdir} from "node:os"
@@ -44,14 +44,6 @@ import pack from "./package.json" with {type: "json"}
  * @property {string} name
  * @property {string} branch
  * @property {string[]} files
- */
-
-/**
- * @typedef {Partial<Record<string, string>>} MetaBranch
- */
-
-/**
- * @typedef {Partial<Record<string, MetaBranch>>} Meta
  */
 
 /** @type {Config} */
@@ -91,6 +83,14 @@ const config = {
     }
   ]
 }
+
+/**
+ * @typedef {Partial<Record<string, string>>} MetaBranch
+ */
+
+/**
+ * @typedef {Partial<Record<string, MetaBranch>>} Meta
+ */
 
 /**
  * @typedef {Object} BuildOptions
@@ -168,12 +168,13 @@ async function build(opt) {
     })
     await rm(from)
 
-    const branchDir = join(dist, source.branch)
-    if (!existsSync(branchDir)) {
-      await mkdir(branchDir)
+    const d = join(dist, source.branch)
+    if (!existsSync(d)) {
+      await mkdir(d)
     }
+
     from = to
-    to = join(branchDir, `${source.name}.json`)
+    to = join(d, `${source.name}.json`)
     w = createWriteStream(to)
     await jq(w, from)
     w.close()
@@ -311,7 +312,6 @@ function createTempDir() {
 function distDir() {
   return join(rootDir(), "dist")
 }
-
 
 /**
  * @returns {string}
