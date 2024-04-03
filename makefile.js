@@ -306,7 +306,9 @@ function rootDir() {
  */
 async function jsdoc(w, from) {
   return new Promise((res, rej) => {
-    const s = spawn("./node_modules/.bin/jsdoc", [from, "--debug", "--explain", "--recurse"])
+    const s = spawn("./node_modules/.bin/jsdoc", [
+      from, "--debug", "--explain", "--recurse"
+    ])
     s.stdout.on("data", (ch) => {
       const l = ch.toString()
       if (
