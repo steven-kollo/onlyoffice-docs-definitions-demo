@@ -83,11 +83,11 @@ const config = {
 }
 
 /**
- * @typedef {Partial<Record<string, string>>} MetaBranch
+ * @typedef {Partial<Record<string, MetaBranch>>} Meta
  */
 
 /**
- * @typedef {Partial<Record<string, MetaBranch>>} Meta
+ * @typedef {Partial<Record<string, string>>} MetaBranch
  */
 
 /**
@@ -130,7 +130,7 @@ async function build(opt) {
 
   if (!opt.force) {
     const current = await fetchCurrentMeta(config)
-    if (JSON.stringify(current) === JSON.stringify(latest)) {
+    if (deepEqual(current, latest)) {
       console.info("No updates")
       return
     }
@@ -209,21 +209,55 @@ async function fetchCurrentMeta(c) {
 }
 
 /**
+ * @param {any} a
+ * @param {any} b
+ * @returns {boolean}
+ */
+function deepEqual(a, b) {
+  if (typeof a !== typeof b) {
+    return false
+  }
+
+  if (typeof a === "object") {
+    const m = Object.keys(a)
+    const n = Object.keys(b)
+    if (m.length !== n.length) {
+      return false
+    }
+
+    for (const k of m) {
+      const x = a[k]
+      const y = b[k]
+      if (!deepEqual(x, y)) {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  if (a !== b) {
+    return false
+  }
+
+  return true
+}
+
+/**
  * @param {Config} c
  * @returns {Promise<Meta>}
  */
 async function fetchLatestMeta(c) {
   /** @type {Meta} */
   const m = {}
-  // Do not use Promise.all here, because the order of the sources is sensitive.
-  for (const s of c.sources) {
+  await Promise.all(c.sources.map(async (s) => {
     let b = m[s.branch]
     if (b === undefined) {
       b = {}
       m[s.branch] = b
     }
     b[s.name] = await fetchSHA(s)
-  }
+  }))
   return m
 }
 
