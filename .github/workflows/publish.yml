@@ -27,11 +27,13 @@ jobs:
       run: pnpm install --frozen-lockfile
 
     - name: Build Declarations
+      id: build
       env:
         MAKEFILE_BUILD_FORCE: ${{github.event_name == 'workflow_dispatch'}}
       run: pnpm build
 
     - name: Setup Git
+      if: ${{!contains(steps.build.outputs, 'no updates')}}
       run: |
         u=$(curl --silent --header "Accept: application/json" "https://api.github.com/users/${{github.actor}}")
         id=$(echo "$u" | jq --raw-output ".id")
@@ -39,6 +41,7 @@ jobs:
         git config --global user.email "$id+${{github.actor}}@users.noreply.github.com"
 
     - name: Publish Declarations
+      if: ${{!contains(steps.build.outputs, 'no updates')}}
       run: |
         temp=$(mktemp -d)
         cd ./dist
