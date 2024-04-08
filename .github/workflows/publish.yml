@@ -28,8 +28,8 @@ jobs:
 
     - name: Build Declarations
       id: build
-      # env:
-      #   MAKEFILE_BUILD_FORCE: ${{github.event_name == 'workflow_dispatch'}}
+      env:
+        MAKEFILE_BUILD_FORCE: ${{github.event_name == 'workflow_dispatch'}}
       run: |
         s=$(pnpm build)
         echo "stdout<<EOF" >> "$GITHUB_OUTPUT"
