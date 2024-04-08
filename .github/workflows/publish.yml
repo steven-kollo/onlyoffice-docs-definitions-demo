@@ -58,5 +58,9 @@ jobs:
           "$temp"
         mv "$temp/.git" .
         git add .
-        git commit --quiet --message "$(date --utc)"
-        git push
+        if git diff-index --quiet HEAD --; then
+          echo "No changes to commit"
+        else
+          git commit --quiet --message "$(date --utc)"
+          git push
+        fi
