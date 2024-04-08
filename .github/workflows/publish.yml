@@ -32,7 +32,9 @@ jobs:
       #   MAKEFILE_BUILD_FORCE: ${{github.event_name == 'workflow_dispatch'}}
       run: |
         s=$(pnpm build)
-        echo "stdout=$s" >> "$GITHUB_OUTPUT"
+        echo "stdout<<EOF" >> "$GITHUB_OUTPUT"
+        echo "$s" >> "$GITHUB_OUTPUT"
+        echo "EOF" >> "$GITHUB_OUTPUT"
 
     - name: Setup Git
       if: ${{!contains(steps.build.outputs.stdout, 'no updates')}}
