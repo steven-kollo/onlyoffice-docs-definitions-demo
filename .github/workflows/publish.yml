@@ -27,6 +27,8 @@ jobs:
       run: pnpm install --frozen-lockfile
 
     - name: Build Declarations
+      env:
+        MAKEFILE_BUILD_FORCE: ${{github.event_name == "workflow_dispatch"}}
       run: pnpm build
 
     - name: Setup Git
