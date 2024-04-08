@@ -30,7 +30,7 @@ jobs:
       id: build
       # env:
       #   MAKEFILE_BUILD_FORCE: ${{github.event_name == 'workflow_dispatch'}}
-      run: pnpm build >> "$GITHUB_OUTPUT"
+      run: pnpm build >> $GITHUB_OUTPUT
 
     - name: Setup Git
       if: ${{!contains(steps.build.outputs, 'no updates')}}
