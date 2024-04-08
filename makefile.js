@@ -8,8 +8,8 @@
 
 import {spawn} from "node:child_process"
 import {Console as NodeConsole} from "node:console"
-import {createReadStream, createWriteStream, existsSync} from "node:fs"
 import {mkdir, mkdtemp, writeFile, rm, rmdir} from "node:fs/promises"
+import {createReadStream, createWriteStream, existsSync} from "node:fs"
 import {tmpdir} from "node:os"
 import {dirname, join} from "node:path"
 import {argv, env} from "node:process"
@@ -107,11 +107,20 @@ function main() {
   sade("./makefile.js")
     .command("build")
     .option("--force", "Force build", false)
-    .action(opts => {
-      if (env.MAKEFILE_BUILD_FORCE) opts.force = true
-      build(opts)
+    .action(async (opt) => {
+      if (isForceBuild()) {
+        opt.force = true
+      }
+      await build(opt)
     })
     .parse(argv)
+}
+
+/**
+ * @returns {boolean}
+ */
+function isForceBuild() {
+  return env.MAKEFILE_BUILD_FORCE === "true"
 }
 
 /**
