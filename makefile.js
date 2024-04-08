@@ -58,7 +58,6 @@ const config = {
     {
       owner: "onlyoffice",
       name: "sdkjs",
-      // todo: replace with `branches: string[]`
       branch: "master",
       files: [
         "word/apiBuilder.js",
@@ -74,7 +73,6 @@ const config = {
     {
       owner: "onlyoffice",
       name: "sdkjs-forms",
-      // todo: replace with `branches: string[]`
       branch: "master",
       files: [
         "apiBuilder.js",
@@ -273,9 +271,8 @@ function sourceFile(m, s, f) {
 }
 
 /**
- * Downloads a file.
- * @param {string} u The URL of the file to download.
- * @param {string} p The path of the file to save.
+ * @param {string} u
+ * @param {string} p
  * @returns {Promise<void>}
  */
 async function downloadFile(u, p) {
